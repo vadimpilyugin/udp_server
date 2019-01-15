@@ -3,7 +3,7 @@ GOCMD=go
 GOBUILD=$(GOCMD) build
 GOCLEAN=$(GOCMD) clean
 GOGET=$(GOCMD) get
-BINARY_NAME=main
+BINARY_NAME=server
 BINARY_UNIX=$(BINARY_NAME)_unix
 
 all: $(BINARY_NAME)
