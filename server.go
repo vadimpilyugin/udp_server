@@ -12,12 +12,15 @@ import (
 
 const (
   SMBUF = 256
-  WAITFOR = 3
+  WAITFOR = 2
+  LONGWAIT = 5
   DO_RETRANSMIT = "Do another retransmission"
   READY = "Ready"
   FILE_RECEIVED = "File received"
   STATS = "Stats?"
+  TELL_TIME = "Time?"
   LF = '\n'
+  USE_TCP = "Use TCP"
 )
 const (
   serverPortTcp = "8080"
@@ -132,7 +135,7 @@ func readMsg(c net.Conn) []byte {
     printer.Fatal(err, "Client exited")
   }
   if n > 0 {
-    printer.Debug(buffer[:n-1], "--- client")
+    printer.Debug(string(buffer[:n-1]), "--- client")
   }
   return buffer[:n]
 }
@@ -164,6 +167,9 @@ func printReceived(filesParts map[string]*CombinedFile) {
   for fn := range filesParts {
     rp := filesParts[fn].RecvParts
     np := filesParts[fn].NParts
+    if rp == np {
+      continue
+    }
     printer.Note(
       fmt.Sprintf("%d / %d (%.2f %%) [%d left]", rp, np, float64(rp) / float64(np) * 100, np-rp), 
       fn,
@@ -172,14 +178,23 @@ func printReceived(filesParts map[string]*CombinedFile) {
 }
 
 func testSeries(pc net.PacketConn, c net.Conn, received chan string, parts chan *FilePart) {
-  var filesParts map[string]*CombinedFile
+  // var filesParts map[string]*CombinedFile
+  filesParts := make(map[string]*CombinedFile)
   var timer *time.Timer
 
   for {
-    if msg := <-received; msg == READY {
-      filesParts = make(map[string]*CombinedFile)
+    msg := <-received
+    if msg == USE_TCP {
+      sendMsg(c, USE_TCP)
+      msg := <-received
+      sendMsg(c, FILE_RECEIVED)
+      printer.Note(fmt.Sprintf("tcp %d bytes", len(msg)), "--- file received")
+      continue
+    }
+    if msg == READY {
       sendMsg(c, READY)
-      timer = time.NewTimer(WAITFOR * time.Second)
+      timer = time.NewTimer(LONGWAIT * time.Second)
+      break
     }
 OuterLoop:
     for {
@@ -187,27 +202,15 @@ OuterLoop:
         case <-timer.C:
           printReceived(filesParts)
           sendMsg(c, DO_RETRANSMIT)
-          timer.Reset(WAITFOR * time.Second)
+          timer.Reset(LONGWAIT * time.Second)
         case fp := <-parts:
           cf := insertPart(filesParts, fp)
           if cf != nil {
-            timer.Stop()
             sendMsg(c, FILE_RECEIVED)
-            if msg := <-received; msg == STATS {
-              content := cf.content()
-              fileSize := len(content)
-              timeTaken := time.Since(cf.RecvStarted).Seconds()
-              speed := float64(fileSize * 8) / 1000 / timeTaken
-
-              printer.Note(cf.Filename,"--- file received")
-              printer.Note(fileSize, "--- length (bytes)")
-              printer.Note(timeTaken, "--- time taken (s)")
-              printer.Note(speed, "--- mean speed (kbps)")
-
-              sendMsg(c, fmt.Sprintf("%s,%d,%f,%f", cf.Filename, fileSize, timeTaken, speed))
-              printReceived(filesParts)
-              break OuterLoop
-            }
+            timer.Stop()
+            printer.Note(cf.Filename,"--- file received")
+            printReceived(filesParts)
+            break OuterLoop
           }
           timer.Reset(WAITFOR * time.Second)
       }
