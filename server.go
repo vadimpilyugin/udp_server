@@ -135,7 +135,11 @@ func readMsg(c net.Conn) []byte {
     printer.Fatal(err, "Client exited")
   }
   if n > 0 {
-    printer.Debug(string(buffer[:n-1]), "--- client")
+    if n > 100 {
+      printer.Debug(string(buffer[:100])+"[...]", "--- client")
+    } else {
+      printer.Debug(string(buffer[:n-1]), "--- client")
+    }
   }
   return buffer[:n]
 }
@@ -194,7 +198,6 @@ func testSeries(pc net.PacketConn, c net.Conn, received chan string, parts chan 
     if msg == READY {
       sendMsg(c, READY)
       timer = time.NewTimer(LONGWAIT * time.Second)
-      break
     }
 OuterLoop:
     for {
